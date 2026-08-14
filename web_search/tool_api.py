@@ -27,6 +27,9 @@ from implement import (
     BiliEngine,
 )
 from crawl import crawl2md
+from logging_config import setup_logger, logger
+
+setup_logger("INFO")
 
 
 async def web_search_tool(
