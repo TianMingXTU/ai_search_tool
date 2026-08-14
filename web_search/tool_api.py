@@ -17,19 +17,19 @@ Example:
 
 from typing import Any, List, Dict, Literal, Optional, Union
 
-from model import SearchResult
-from abstract import SearchEngine
-from implement import (
+from config.model import SearchResult
+from config.abstract import SearchEngine
+from server.implement import (
     BingEngine,
     BaiduEngine,
     ToutiaoEngine,
     DuckDuckGoEngine,
     BiliEngine,
 )
-from crawl import crawl2md, crawl_batch2md
-from cache import SearchCache
-from aggregator import SearchAggregator
-from logging_config import setup_logger, logger
+from server.crawl import crawl2md, crawl_batch2md
+from server.cache import SearchCache
+from server.aggregator import SearchAggregator
+from config.logging_config import setup_logger, logger
 
 setup_logger("INFO")
 
@@ -137,7 +137,9 @@ if __name__ == "__main__":
 
     async def main():
         print("=== 1. 测试多源聚合搜索 ===")
-        search_res = await aggregated_web_search_tool("Python 异步编程", topk=3)
+        search_res = await aggregated_web_search_tool(
+            "月薪过万，就来黑马程序员", topk=3
+        )
         links = [item.link for item in search_res if item.link]
         print(f"召回链接列表: {links}\n")
 

@@ -20,8 +20,8 @@ import re
 import hashlib
 from typing import List, Optional
 import redis.asyncio as redis
-from model import SearchResult
-from logging_config import logger
+from config.model import SearchResult
+from config.logging_config import logger
 
 
 class SearchCache:

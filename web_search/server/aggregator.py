@@ -17,43 +17,56 @@ Example:
 
 import asyncio
 from typing import List
-from abstract import SearchEngine
-from model import SearchResult
-from filter import extract_keywords
-from logging_config import logger
+from config.abstract import SearchEngine
+from config.model import SearchResult
+from server.filter import extract_keywords
+from config.logging_config import logger
 
 
 class SearchAggregator:
     def __init__(self, engines: List[SearchEngine]):
         self.engines = engines
 
-    async def aggregate_search(self, query: str, topk: int) -> List[SearchResult]:
+    async def aggregate_search(
+        self, query: str, topk: int, timeout: int = 10
+    ) -> List[SearchResult]:
         """并发请求所有搜索引擎，并进行合并、去重、打分重排"""
         logger.info(
             f"[Aggregator] 开始并发聚合搜索: query='{query}', 引擎数={len(self.engines)}"
         )
 
         # 1. 并发打向多个搜索引擎 (对异常进行 return_exceptions 容错处理)
-        tasks = [engine.search(query, topk) for engine in self.engines]
-        responses = await asyncio.gather(*tasks, return_exceptions=True)
+        tasks = [
+            asyncio.create_task(engine.search(query, topk)) for engine in self.engines
+        ]
+        done, pending = await asyncio.wait(tasks, timeout=timeout)
+        for p in pending:
+            p.cancel()
 
-        all_results: List[SearchResult] = []
-        for resp in responses:
-            if isinstance(resp, list):
-                all_results.extend(resp)
-            elif isinstance(resp, Exception):
-                logger.error(f"[Aggregator] 某引擎响应异常: {resp}")
-
-        if not all_results:
-            logger.warning(f"[Aggregator] 所有引擎均未召回有效结果")
-            return []
+        results: list[SearchResult] = []
+        for task in done:
+            try:
+                res_list = task.result()
+                if isinstance(res_list, list):
+                    for res in res_list:
+                        # 过滤掉非空或无效的 SearchResult
+                        if (
+                            res
+                            and getattr(res, "link", None)
+                            and getattr(res, "title", None)
+                        ):
+                            results.append(res)
+            except Exception as e:
+                logger.error(f"[Aggregator] 引擎任务异常: {e}")
 
         # 2. 合并与去重 (按规范化的 URL 和 Title 进行去重)
         deduplicated_results: List[SearchResult] = []
         seen_links = set()
         seen_titles = set()
 
-        for res in all_results:
+        for res in results:
+            if not res.link or not res.title:
+                continue
             # 清理 URL 尾部斜杠，防止规范化差异
             norm_link = res.link.rstrip("/")
             norm_title = res.title.strip().lower()
@@ -71,7 +84,7 @@ class SearchAggregator:
         # 4. 截取 TopN
         final_results = scored_results[:topk]
         logger.info(
-            f"[Aggregator] 聚合完成: 原始={len(all_results)} 条, 去重后={len(deduplicated_results)} 条, 返回 Top{len(final_results)}"
+            f"[Aggregator] 聚合完成: 原始={len(results)} 条, 去重后={len(deduplicated_results)} 条, 返回 Top{len(final_results)}"
         )
         return final_results
 

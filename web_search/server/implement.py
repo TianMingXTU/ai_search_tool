@@ -20,13 +20,13 @@ import asyncio
 from bs4 import BeautifulSoup
 from curl_cffi import requests
 from ddgs import DDGS
-from abstract import SearchEngine
-from model import SearchResult
-from filter import filtering
+from config.abstract import SearchEngine
+from config.model import SearchResult
+from server.filter import filtering
 from bilibili_api import select_client
 from bilibili_api import search as bili_search
-from logging_config import logger
-from filter import filtering, is_ad_text
+from config.logging_config import logger
+from server.filter import filtering, is_ad_text
 
 headers = {
     "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.0 Mobile/15E148 Safari/604.1",
@@ -43,14 +43,15 @@ headers = {
 class BingEngine(SearchEngine):
     def __init__(self):
         super().__init__()
-        self.url = "https://www.bing.com/search?format=rss"
+        self.url_rss = "https://www.bing.com/search?format=rss"
+        self.url = "https://www.bing.com/search?"
         self.session = requests.AsyncSession(impersonate="chrome120")
 
     async def search(self, query: str, topk: int):
         logger.info(f"[BingEngine] 开始搜索: query='{query}', topk={topk}")
         try:
             resp = await self.session.get(
-                self.url, params={"q": query}, headers=headers
+                self.url_rss, params={"q": query}, headers=headers
             )
             results = []
             if resp.status_code != 200:
@@ -75,7 +76,6 @@ class BingEngine(SearchEngine):
 
         if not results:
             try:
-                self.url = "https://www.bing.com/search?"
                 resp = await self.session.get(
                     self.url, params={"q": query}, headers=headers
                 )
@@ -109,10 +109,10 @@ class BingEngine(SearchEngine):
                         )
                         results.append(res)
             except Exception as e:
+                results = []
                 logger.error(f"[BingEngine] 网页版解析发生异常: {e}")
         if not results:
             logger.warning(f"[BingEngine] 未找到关于「{query}」的相关结果")
-            return f"未搜索到关于「{query}」的相关结果，请尝试更换关键词。"
 
         logger.info(f"[BingEngine] 成功召回 {len(results)} 条结果")
         return results
@@ -165,7 +165,7 @@ class BaiduEngine(SearchEngine):
                 title = title_elem.get_text(strip=True) if title_elem else ""
                 # 获取链接
                 article = item.find("article")
-                ivk_str = article.get("rl-link-data-ivk")
+                ivk_str = article.get("rl-link-data-ivk") if article else None
                 ivk_data = json.loads(ivk_str) if ivk_str else {}
                 link = ivk_data.get("control", {}).get("dataUrl")
                 snippet_elem = item.find(
@@ -178,10 +178,10 @@ class BaiduEngine(SearchEngine):
                     )
                     results.append(res)
         except Exception as e:
+            results = []
             logger.error(f"[BaiduEngine] 网页版解析发生异常: {e}")
         if not results:
             logger.warning(f"[BaiduEngine] 未找到关于「{query}」的相关结果")
-            return f"未搜索到关于「{query}」的相关结果，请尝试更换关键词。"
 
         logger.info(f"[BaiduEngine] 成功召回 {len(results)} 条结果")
         return results
@@ -229,10 +229,10 @@ class ToutiaoEngine(SearchEngine):
                     )
                     results.append(res)
         except Exception as e:
+            results = []
             logger.error(f"[ToutiaoEngine] 网页版解析发生异常: {e}")
         if not results:
             logger.warning(f"[ToutiaoEngine] 未找到关于「{query}」的相关结果")
-            return f"未搜索到关于「{query}」的相关结果，请尝试更换关键词。"
 
         logger.info(f"[ToutiaoEngine] 成功召回 {len(results)} 条结果")
         return results
@@ -244,26 +244,28 @@ class DuckDuckGoEngine(SearchEngine):
 
     async def search(self, query: str, topk: int):
         logger.info(f"[DuckDuckGoEngine] 开始搜索: query='{query}', topk={topk}")
+        results = []
         try:
-            with DDGS() as ddgs:
-                result = await asyncio.to_thread(self._fetch_sync, query, topk)
-                results = [
-                    SearchResult(
-                        title=item.get("title"),
-                        link=item.get("href"),
-                        snippet=item.get("body"),
-                        source_engine="DuckDuckGo",
-                    )
-                    for item in result
-                ]
-            if not results:
-                logger.warning(f"[ToutiaoEngine] 未找到关于「{query}」的相关结果")
-                return f"未搜索到关于「{query}」的相关结果，请尝试更换关键词。"
-
-            logger.info(f"[ToutiaoEngine] 成功召回 {len(results)} 条结果")
-            return results
+            result = await asyncio.wait_for(
+                asyncio.to_thread(self._fetch_sync, query, topk), timeout=5
+            )
+            results = [
+                SearchResult(
+                    title=item.get("title"),
+                    link=item.get("href"),
+                    snippet=item.get("body"),
+                    source_engine="DuckDuckGo",
+                )
+                for item in result
+            ]
         except Exception as e:
-            raise RuntimeError(f"DuckDuckGo 搜索底层异常: {str(e)}")
+            results = []
+            logger.error(f"DuckDuckGoEngine 搜索底层异常（国内超时）: {str(e)}")
+        if not results:
+            logger.warning(f"[DuckDuckGoEngine] 未找到关于「{query}」的相关结果")
+
+        logger.info(f"[DuckDuckGoEngine] 成功召回 {len(results)} 条结果")
+        return results
 
     def _fetch_sync(self, query: str, topk: int):
         with DDGS() as ddgs:
@@ -299,18 +301,17 @@ class BiliEngine(SearchEngine):
                     source_engine="BiliBili",
                 )
                 results.append(res)
-            if not results:
-                logger.warning(f"[BiliEngine] 未找到关于「{query}」的相关结果")
-                return f"未搜索到关于「{query}」的相关结果，请尝试更换关键词。"
-
-            logger.info(f"[BiliEngine] 成功召回 {len(results)} 条结果")
-            return results
         except Exception as e:
-            raise RuntimeError(f"BiliEngine 搜索异常: {str(e)}")
+            logger.error(f"BiliEngine 搜索异常: {str(e)}")
+        if not results:
+            logger.warning(f"[BiliEngine] 未找到关于「{query}」的相关结果")
+
+        logger.info(f"[BiliEngine] 成功召回 {len(results)} 条结果")
+        return results
 
 
 if __name__ == "__main__":
 
-    s = BingEngine()
-    result = asyncio.run(s.search("广州", 3))
+    s = DuckDuckGoEngine()
+    result = asyncio.run(s.search("人工智能", 3))
     print(result)
