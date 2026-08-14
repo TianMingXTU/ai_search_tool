@@ -4,7 +4,7 @@ FILENAME    : cache.py
 Date        : 2026/08/14 12:14:09
 Author      : Huijian Qin
 Version     : 1.0.0
-Description : Redis 缓存层实现，保护真实请求并提供 Query 级别的搜索结果缓存
+Description : 内存 + Redis 缓存层实现，保护真实请求并提供 Query 级别的搜索结果缓存
 
 Attributes:
 
@@ -18,7 +18,8 @@ Example:
 import json
 import re
 import hashlib
-from typing import List, Optional
+import time
+from typing import List, Optional, Dict, Tuple
 import redis.asyncio as redis
 from config.model import SearchResult
 from config.logging_config import logger
@@ -34,6 +35,7 @@ class SearchCache:
         ttl: int = 3600,  # 默认缓存 1 小时
     ):
         self.ttl = ttl
+        self._memory_cache: Dict[str, Tuple[float, List[SearchResult]]] = {}
         self.redis_client = redis.Redis(
             host=host,
             port=port,
@@ -92,6 +94,13 @@ class SearchCache:
     async def get(self, query: str, topk: int) -> Optional[List[SearchResult]]:
         """从 Redis 获取缓存的 SearchResult 列表"""
         key = self._gen_key(query, topk)
+        if key in self._memory_cache:
+            expire_at, data = self._memory_cache[key]
+            if time.time() < expire_at:
+                logger.info(f"[MemoryCache] 命中内存缓存: query='{query}'")
+                return data
+            else:
+                del self._memory_cache[key]
         try:
             cached_data = await self.redis_client.get(key)
             if cached_data:
@@ -107,6 +116,7 @@ class SearchCache:
         if not results:
             return
         key = self._gen_key(query, topk)
+        self._memory_cache[key] = (time.time() + self.ttl, results)
         try:
             # dataclass 转换为 dict 结构存储
             data_to_cache = [

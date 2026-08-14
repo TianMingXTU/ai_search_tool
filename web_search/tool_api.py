@@ -138,7 +138,7 @@ if __name__ == "__main__":
     async def main():
         print("=== 1. 测试多源聚合搜索 ===")
         search_res = await aggregated_web_search_tool(
-            "月薪过万，就来黑马程序员", topk=3
+            " 0基础，学AI，月薪过万，就来黑马程序员", topk=3
         )
         links = [item.link for item in search_res if item.link]
         print(f"召回链接列表: {links}\n")

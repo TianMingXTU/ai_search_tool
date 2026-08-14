@@ -10,8 +10,10 @@ Example:
     >>> markdown_text = await crawl2md("https://docs.crawl4ai.com/")
 """
 
+import re
 import asyncio
 from typing import List, Optional, Dict
+from curl_cffi.requests import AsyncSession
 from crawl4ai import AsyncWebCrawler, BrowserConfig, CrawlerRunConfig, CacheMode
 
 
@@ -53,6 +55,17 @@ async def crawl2md(link: str) -> str:
     :param link: 网页地址
     :return: 对应的 Markdown 文本或失败提示
     """
+    # 1. 优先使用极轻量级的 curl_cffi 进行静态拉取（内存占用 < 10MB）
+    try:
+        async with AsyncSession(impersonate="chrome120") as session:
+            resp = await session.get(link, timeout=6)
+            if resp.status_code == 200 and len(resp.text) > 200:
+                clean_text = _html_to_clean_text(resp.text)
+                if len(clean_text) > 100:
+                    return clean_text
+    except Exception:
+        pass
+    # 2. 静态提取失败且支持无头浏览器时，再调取 crawl4ai
     try:
         crawler = await CrawlerManager.get_crawler()
 
@@ -70,6 +83,22 @@ async def crawl2md(link: str) -> str:
         return "web内容获取失败: 页面加载未成功"
     except Exception as e:
         return f"web内容获取失败: {str(e)}"
+
+
+def _html_to_clean_text(html: str) -> str:
+    """极轻量级 HTML 纯文本提取（无大内存依赖）"""
+    # 移除 script 与 style 标签
+    text = re.sub(
+        r"<(script|style).*?>.*?</\1>", "", html, flags=re.DOTALL | re.IGNORECASE
+    )
+    # 转换换行标签
+    text = re.sub(r"<br\s*/?>", "\n", text, flags=re.IGNORECASE)
+    text = re.sub(r"</(p|div|h[1-6]|li|tr)>", "\n", text, flags=re.IGNORECASE)
+    # 去除所有 HTML 标签
+    text = re.sub(r"<[^>]+>", "", text)
+    # 清理多余空行
+    lines = [line.strip() for line in text.splitlines() if line.strip()]
+    return "\n".join(lines)
 
 
 async def crawl_batch2md(links: List[str]) -> Dict[str, str]:

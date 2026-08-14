@@ -91,25 +91,30 @@ class SearchAggregator:
     def _rank_results(
         self, query: str, results: List[SearchResult]
     ) -> List[SearchResult]:
-        """根据 Query 关键词在标题与摘要中的匹配度进行相关性打分"""
         q_keywords = extract_keywords(query)
-        if not q_keywords:
-            return results
+        q_lower = query.lower()
 
         def calculate_score(item: SearchResult) -> float:
             score = 0.0
-            t_keywords = extract_keywords(item.title)
-            s_keywords = extract_keywords(item.snippet)
+            t_lower = item.title.lower()
+            s_lower = item.snippet.lower() if item.snippet else ""
 
-            # 标题关键词命中权重 (权重 0.6)
-            title_hits = len(q_keywords & t_keywords)
-            score += (title_hits / len(q_keywords)) * 0.6
+            # 1. 完整 Query 包含加权
+            if q_lower in t_lower:
+                score += 0.5
+            if q_lower in s_lower:
+                score += 0.2
 
-            # 摘要关键词命中权重 (权重 0.4)
-            snippet_hits = len(q_keywords & s_keywords)
-            score += (snippet_hits / len(q_keywords)) * 0.4
+            # 2. 关键词匹配加权
+            if q_keywords:
+                t_keywords = extract_keywords(item.title)
+                s_keywords = extract_keywords(item.snippet)
+                title_hits = len(q_keywords & t_keywords)
+                snippet_hits = len(q_keywords & s_keywords)
+
+                score += (title_hits / len(q_keywords)) * 0.4
+                score += (snippet_hits / len(q_keywords)) * 0.2
 
             return score
 
-        # 按得分从高到低排序
         return sorted(results, key=calculate_score, reverse=True)

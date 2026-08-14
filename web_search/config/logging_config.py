@@ -20,7 +20,7 @@ from pathlib import Path
 from loguru import logger
 
 # 日志输出目录
-LOG_DIR = Path(__file__).resolve().parent / "logs"
+LOG_DIR = Path(__file__).resolve().parent.parent / "logs"
 
 
 def setup_logger(log_level: str = "INFO") -> None:
