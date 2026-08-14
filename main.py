@@ -1,141 +1,195 @@
-# """main module.
+"""
+FILENAME    : main.py
+Description : bigOClaw 平台 CLI 工具入口，集成了【带 Redis 二级缓存的搜索 + 网页全文抓取】完整 Pipeline，输出 JSON 到 stdout
+"""
 
-# FILENAME    : main.py
-# Date        : 2026/08/09 20:40:30
-# Author      : Huijian Qin
-# Version     : 1.0.0
-# Description : 网络搜索工具核心调入文件
-
-# Attributes:
-
-
-# Example:
-#     >>> from main import
-#     >>>
-
-# """
-
-# import httpx
-# from bs4 import BeautifulSoup
-# import requests
-# import time
-
-# headers = {
-#     "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.0 Mobile/15E148 Safari/604.1",
-#     "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
-#     "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
-#     "Accept-Encoding": "gzip, deflate, br",
-#     "Connection": "keep-alive",
-#     "Referer": "https://wap.baidu.com/",
-# }
-# session = requests.Session()
-
-# session.get("https://wap.baidu.com/", headers=headers)
-# time.sleep(0.5)
-# url = "https://wap.baidu.com/s"
-# client = httpx.Client(follow_redirects=True)
-# result = client.get(url=url, params={"word": "简历造假"}, headers=headers)
-# print(result.status_code)
-# print("-" * 50)
-# # print(result.text)
-
-# soup = BeautifulSoup(result.text, "lxml")
-# print(soup)
-# print("-" * 50)
-# # with open("baidu_result.html", "w", encoding="utf-8") as f:
-# #     f.writelines(str(soup))
-
-# # card = soup.find("article", class_="cosc-card")
-# # print(card)
-# # r1 = soup.find("article", class_="cosc-card")
-# # print(r1)
-# import json
-
-# for item in soup.select(".c-result.result"):
-#     # print(item)
-
-#     print("-" * 50)
-#     article = item.find("article")
-#     print(article)
-#     ivk_str = article.get("rl-link-data-ivk")
-#     ivk_data = json.loads(ivk_str)
-#     url = ivk_data.get("control", {}).get("dataUrl")
-#     print(url)
-#     # if "href" in href:
-#     #     print("获取href")
-#     #     print(href["href"])
-#     print("-" * 50)
-# # print(f"href:{href["href"]}")
-# # title = item.find("item").get_text(strip=True)
-# # print(f"title:{title}")
-# 安装：pip install curl_cffi beautifulsoup4 lxml
-
-from curl_cffi import requests
-from bs4 import BeautifulSoup
+import argparse
+import asyncio
 import json
-import time
+from pathlib import Path
+import sys
+
+# 将当前工具根目录加入 sys.path，保证能够正常 import web_search 模块
+current_dir = Path(__file__).resolve().parent
+if str(current_dir) not in sys.path:
+    sys.path.insert(0, str(current_dir))
+
+from web_search.tool_api import (
+    aggregated_web_search_tool,
+    crawl_batch2md_tool,
+    crawl2md_tool,
+)
 
 
-def fetch_baidu_serp(query: str, retry: int = 1) -> str:
-    # 1. 创建会话，模拟 Chrome 121（移动端）
-    session = requests.Session(impersonate="chrome120")
-
-    # 2. 头信息（与指纹对齐，可选但推荐）
-    headers = {
-        "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.0 Mobile/15E148 Safari/604.1",
-        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
-        "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
-        "Accept-Encoding": "gzip, deflate, br",
-        "Referer": "https://wap.baidu.com/",
-        "Sec-Fetch-Site": "same-origin",
-        "Sec-Fetch-Mode": "navigate",
-        "Sec-Fetch-Dest": "document",
-    }
-
-    # 3. 先访问首页（获取 Cookie 和必要状态）
-    session.get("https://wap.baidu.com/", headers=headers)
-    time.sleep(1)  # 模拟人类停顿
-
-    # 4. 发起搜索
-    params = {"wd": query}
-    resp = session.get(
-        "https://wap.baidu.com/s", params=params, headers=headers, timeout=20
+def parse_args():
+    parser = argparse.ArgumentParser(
+        description="带 Redis 二级缓存的多源并发聚合搜索与网页全文抓取工具"
     )
+    parser.add_argument(
+        "--query",
+        "-q",
+        type=str,
+        default=None,
+        help="搜索关键词（当 mode=pipeline 或 search 时必填）",
+    )
+    parser.add_argument(
+        "--url",
+        "-u",
+        type=str,
+        default=None,
+        help="指定抓取的单个 URL（当 mode=crawl 时指定）",
+    )
+    parser.add_argument(
+        "--topk",
+        "-k",
+        type=int,
+        default=3,
+        help="返回的搜索结果条数 (默认 3)",
+    )
+    parser.add_argument(
+        "--mode",
+        "-m",
+        type=str,
+        choices=["pipeline", "search", "crawl"],
+        default="pipeline",
+        help="工作模式: 'pipeline'(默认: 搜索+智能抓取全文), 'search'(仅搜索), 'crawl'(仅抓取指定URL)",
+    )
+    parser.add_argument(
+        "--no-cache",
+        action="store_true",
+        help="禁用 Redis 缓存，强制重新发起网络搜索与抓取",
+    )
+    return parser.parse_args()
 
-    # 5. 校验返回值
-    if resp.status_code == 200 and "c-result" in resp.text:
-        return resp.text
-    elif "百度安全验证" in resp.text:
-        if retry > 0:
-            time.sleep(2)
-            return fetch_baidu_serp(query, retry - 1)
-        raise RuntimeError("触发安全验证，请稍后再试或更换IP")
-    else:
-        raise RuntimeError(f"请求异常，状态码{resp.status_code}，预览{resp.text[:200]}")
+
+async def run_pipeline(args):
+    use_cache = not args.no_cache
+
+    # ---------------------------------------------------------
+    # 模式 1：pipeline (默认: 聚合搜索 -> 提取链接 -> 智能并发抓取/查缓存 -> 组装 Prompt)
+    # ---------------------------------------------------------
+    if args.mode == "pipeline":
+        if not args.query:
+            raise ValueError("在 'pipeline' 模式下，必须提供 --query 参数！")
+
+        # 1. 阶段一：聚合搜索 (带搜索级缓存)
+        search_results = await aggregated_web_search_tool(
+            query=args.query, topk=args.topk, use_cache=use_cache
+        )
+
+        valid_links = [item.link for item in search_results if item and item.link]
+
+        markdown_contents = {}
+        aggregated_markdown = ""
+
+        # 2. 阶段二：批量抓取全文 (带 URL 级 Redis 缓存，仅触发 1 次批量调用)
+        if valid_links:
+            # 抓取流程：内部自动查缓存 -> 未命中才爬取 -> 回写 Redis
+            markdown_contents = await crawl_batch2md_tool(
+                valid_links, format_as_text=False, use_cache=use_cache
+            )
+
+            # 在内存中快速高效拼接 Prompt 大文本（避免二次网络请求）
+            formatted_chunks = []
+            for idx, (url, content) in enumerate(markdown_contents.items(), 1):
+                chunk = f"### [Document {idx}] URL: {url}\n\n{content}\n"
+                formatted_chunks.append(chunk)
+
+            aggregated_markdown = (
+                "\n" + "=" * 40 + "\n\n" + "\n\n".join(formatted_chunks)
+            )
+
+        # 3. 组装结果结构化 JSON 抛给平台
+        results_data = []
+        for item in search_results:
+            results_data.append(
+                {
+                    "title": item.title,
+                    "link": item.link,
+                    "snippet": item.snippet,
+                    "source_engine": item.source_engine,
+                    "markdown_content": markdown_contents.get(
+                        item.link, "内容抓取失败"
+                    ),
+                }
+            )
+
+        return {
+            "status": "success",
+            "mode": "pipeline",
+            "query": args.query,
+            "count": len(results_data),
+            "results": results_data,
+            "aggregated_markdown": aggregated_markdown,  # 供大模型大上下文直接读取
+        }
+
+    # ---------------------------------------------------------
+    # 模式 2：search (仅搜索，不抓取正文)
+    # ---------------------------------------------------------
+    elif args.mode == "search":
+        if not args.query:
+            raise ValueError("在 'search' 模式下，必须提供 --query 参数！")
+
+        search_results = await aggregated_web_search_tool(
+            query=args.query, topk=args.topk, use_cache=use_cache
+        )
+
+        return {
+            "status": "success",
+            "mode": "search",
+            "query": args.query,
+            "count": len(search_results),
+            "results": [
+                {
+                    "title": item.title,
+                    "link": item.link,
+                    "snippet": item.snippet,
+                    "source_engine": item.source_engine,
+                }
+                for item in search_results
+            ],
+        }
+
+    # ---------------------------------------------------------
+    # 模式 3：crawl (仅抓取单个指定 URL)
+    # ---------------------------------------------------------
+    elif args.mode == "crawl":
+        if not args.url:
+            raise ValueError("在 'crawl' 模式下，必须提供 --url 参数！")
+
+        # 支持查/写 URL 缓存
+        content = await crawl_batch2md_tool(
+            [args.url], format_as_text=False, use_cache=use_cache
+        )
+        url_markdown = content.get(args.url, "内容抓取失败")
+
+        return {
+            "status": "success",
+            "mode": "crawl",
+            "url": args.url,
+            "markdown_content": url_markdown,
+        }
 
 
-# 使用
-html = fetch_baidu_serp("简历造假")
-soup = BeautifulSoup(html, "lxml")
-for item in soup.select(".c-result.result"):
-    # print(item)
+def main():
+    args = parse_args()
+    try:
+        # 执行异步 pipeline
+        output = asyncio.run(run_pipeline(args))
 
-    # print("-" * 50)
-    article = item.find("article")
-    # print(article)
-    # ivk_str = article.get("rl-link-data-ivk")
-    # if ivk_str:
-    #     try:
-    #         ivk_data = json.loads(ivk_str)
-    #         # print(ivk_data)
-    #         print("-" * 50)
-    #         url = ivk_data.get("control", {}).get("dataUrl")
-    #         print(url)
-    #         print("-" * 50)
-    #     except (json.JSONDecodeError, AttributeError, TypeError):
-    #         pass
-    # title = item.find("span").get_text(strip=True)
-    # print(title)
-    snippet = item.find("div", class_="cos-color-text-tiny summary-gap_68jXq")
-    print(snippet.text)
-    print("-" * 50)
+        # 严格打印合法 JSON 到 stdout（平台读取此输出）
+        print(json.dumps(output, ensure_ascii=False))
+        sys.exit(0)
+
+    except Exception as e:
+        # 异常捕获并输出 JSON 到 stderr，抛出非 0 退出码
+        error_payload = {
+            "status": "error",
+            "message": str(e),
+        }
+        sys.stderr.write(json.dumps(error_payload, ensure_ascii=False) + "\n")
+        sys.exit(1)
+
+
+if __name__ == "__main__":
+    main()

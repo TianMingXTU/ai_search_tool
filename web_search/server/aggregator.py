@@ -17,10 +17,10 @@ Example:
 
 import asyncio
 from typing import List
-from config.abstract import SearchEngine
-from config.model import SearchResult
-from server.filter import extract_keywords
-from config.logging_config import logger
+from web_search.config.abstract import SearchEngine
+from web_search.config.model import SearchResult
+from web_search.server.filter import extract_keywords
+from web_search.config.logging_config import logger
 
 
 class SearchAggregator:

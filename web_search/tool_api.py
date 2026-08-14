@@ -17,19 +17,19 @@ Example:
 
 from typing import Any, List, Dict, Literal, Optional, Union
 
-from config.model import SearchResult
-from config.abstract import SearchEngine
-from server.implement import (
+from web_search.config.model import SearchResult
+from web_search.config.abstract import SearchEngine
+from web_search.server.implement import (
     BingEngine,
     BaiduEngine,
     ToutiaoEngine,
     DuckDuckGoEngine,
     BiliEngine,
 )
-from server.crawl import crawl2md, crawl_batch2md
-from server.cache import SearchCache
-from server.aggregator import SearchAggregator
-from config.logging_config import setup_logger, logger
+from web_search.server.crawl import crawl2md, crawl_batch2md
+from web_search.server.cache import SearchCache
+from web_search.server.aggregator import SearchAggregator
+from web_search.config.logging_config import setup_logger, logger
 
 setup_logger("INFO")
 
@@ -92,43 +92,54 @@ async def crawl2md_tool(link: str) -> str:
 
 
 async def crawl_batch2md_tool(
-    links: List[str], format_as_text: bool = True
+    links: List[str], format_as_text: bool = True, use_cache: bool = True
 ) -> Union[str, Dict[str, str]]:
-    """批量并发爬取多个 url 网址的内容
-
-    依托底层 Chromium 实例复用与 crawl4ai 原生 arun_many 异步并发，一次性抓取全部内容
-
-    Args:
-        links (List[str]): URL 地址列表
-        format_as_text (bool):
-            - True: 返回拼装好、带文档序号分隔符的大文本，便于直接投喂给 LLM
-            - False: 返回 Dict[url, markdown_content] 映射字典
-
-    Returns:
-        Union[str, Dict[str, str]]: 格式化 Markdown 拼接文本 或 URL -> Markdown 内容字典
-    """
+    """带 Redis 缓存保护的批量并发网页抓取工具"""
     if not links:
         return "" if format_as_text else {}
 
-    logger.info(f"[crawl_batch2md_tool] 启动批量并发抓取，URL 数量: {len(links)}")
+    final_results: Dict[str, str] = {}
+    uncached_links: List[str] = []
 
-    # 调取 crawl.py 中的批量并发抓取逻辑
-    batch_res: Dict[str, str] = await crawl_batch2md(links)
+    # 1. 尝试从 Redis 批量读取缓存 (MGET)
+    if use_cache:
+        cached_map = await global_cache.get_batch_url_contents(links)
+        for url in links:
+            content = cached_map.get(url)
+            if content:
+                final_results[url] = content
+            else:
+                uncached_links.append(url)
+
+        hit_count = len(links) - len(uncached_links)
+        logger.info(f"[crawl_batch2md_tool] URL 缓存命中: {hit_count}/{len(links)}")
+    else:
+        uncached_links = links
+
+    # 2. 对未命中的 URL 触发真实的底层 Chromium 爬虫抓取
+    if uncached_links:
+        logger.info(
+            f"[crawl_batch2md_tool] 启动爬取未缓存 URL，数量: {len(uncached_links)}"
+        )
+        newly_crawled_map = await crawl_batch2md(uncached_links)  # [cite: 13]
+
+        # 3. 异步回写 Redis 缓存 (设置 24 小时 TTL)
+        if use_cache and newly_crawled_map:
+            await global_cache.set_batch_url_contents(newly_crawled_map, ttl=86400)
+
+        # 合并新抓取到的结果
+        final_results.update(newly_crawled_map)
 
     if not format_as_text:
-        return batch_res
+        return final_results
 
-    # 格式化拼接为便于 LLM 上下文阅读的 Prompt 结构
+    # 4. 在内存中格式化拼接 Prompt 文本
     formatted_chunks = []
-    for idx, (url, content) in enumerate(batch_res.items(), 1):
+    for idx, (url, content) in enumerate(final_results.items(), 1):
         chunk = f"### [Document {idx}] URL: {url}\n\n{content}\n"
         formatted_chunks.append(chunk)
 
     aggregated_text = "\n" + "=" * 40 + "\n\n" + "\n\n".join(formatted_chunks)
-    logger.info(
-        f"[crawl_batch2md_tool] 批量抓取完成，生成文本总长度: {len(aggregated_text)} 字符"
-    )
-
     return aggregated_text
 
 

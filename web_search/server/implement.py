@@ -20,13 +20,13 @@ import asyncio
 from bs4 import BeautifulSoup
 from curl_cffi import requests
 from ddgs import DDGS
-from config.abstract import SearchEngine
-from config.model import SearchResult
-from server.filter import filtering
+from web_search.config.abstract import SearchEngine
+from web_search.config.model import SearchResult
+from web_search.server.filter import filtering
 from bilibili_api import select_client
 from bilibili_api import search as bili_search
-from config.logging_config import logger
-from server.filter import filtering, is_ad_text
+from web_search.config.logging_config import logger
+from web_search.server.filter import filtering, is_ad_text
 
 headers = {
     "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.0 Mobile/15E148 Safari/604.1",

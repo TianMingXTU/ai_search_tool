@@ -17,7 +17,7 @@ Example:
 
 from typing import List
 from abc import ABC, abstractmethod
-from config.model import SearchResult
+from web_search.config.model import SearchResult
 
 
 class SearchEngine(ABC):
