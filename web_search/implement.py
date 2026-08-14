@@ -16,6 +16,7 @@ Example:
 """
 
 import json
+import asyncio
 from bs4 import BeautifulSoup
 from curl_cffi import requests
 from ddgs import DDGS
@@ -260,7 +261,7 @@ class DuckDuckGoEngine(SearchEngine):
                 return f"未搜索到关于「{query}」的相关结果，请尝试更换关键词。"
 
             logger.info(f"[ToutiaoEngine] 成功召回 {len(results)} 条结果")
-            return result
+            return results
         except Exception as e:
             raise RuntimeError(f"DuckDuckGo 搜索底层异常: {str(e)}")
 
@@ -309,7 +310,6 @@ class BiliEngine(SearchEngine):
 
 
 if __name__ == "__main__":
-    import asyncio
 
     s = BingEngine()
     result = asyncio.run(s.search("广州", 3))
