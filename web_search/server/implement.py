@@ -247,7 +247,7 @@ class DuckDuckGoEngine(SearchEngine):
         results = []
         try:
             result = await asyncio.wait_for(
-                asyncio.to_thread(self._fetch_sync, query, topk), timeout=5
+                asyncio.to_thread(self._fetch_sync, query, topk), timeout=8
             )
             results = [
                 SearchResult(

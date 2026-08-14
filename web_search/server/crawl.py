@@ -55,17 +55,7 @@ async def crawl2md(link: str) -> str:
     :param link: 网页地址
     :return: 对应的 Markdown 文本或失败提示
     """
-    # 1. 优先使用极轻量级的 curl_cffi 进行静态拉取（内存占用 < 10MB）
-    try:
-        async with AsyncSession(impersonate="chrome120") as session:
-            resp = await session.get(link, timeout=6)
-            if resp.status_code == 200 and len(resp.text) > 200:
-                clean_text = _html_to_clean_text(resp.text)
-                if len(clean_text) > 100:
-                    return clean_text
-    except Exception:
-        pass
-    # 2. 静态提取失败且支持无头浏览器时，再调取 crawl4ai
+    # 1. 调取 crawl4ai
     try:
         crawler = await CrawlerManager.get_crawler()
 
@@ -82,7 +72,18 @@ async def crawl2md(link: str) -> str:
             return str(md_content) if md_content else ""
         return "web内容获取失败: 页面加载未成功"
     except Exception as e:
-        return f"web内容获取失败: {str(e)}"
+        pass
+
+        # 2. 降级处理：使用极轻量级的 curl_cffi 进行静态拉取
+        try:
+            async with AsyncSession(impersonate="chrome120") as session:
+                resp = await session.get(link, timeout=6)
+                if resp.status_code == 200 and len(resp.text) > 200:
+                    clean_text = _html_to_clean_text(resp.text)
+                    if len(clean_text) > 100:
+                        return clean_text
+        except Exception:
+            return f"web内容获取失败: {str(e)}"
 
 
 def _html_to_clean_text(html: str) -> str:
