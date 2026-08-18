@@ -130,7 +130,7 @@ class SearchCache:
                 for item in results
             ]
             await self.redis_client.setex(
-                key, self.ttl, payload=orjson.dumps(data_to_cache).decode("utf-8")
+                key, self.ttl, orjson.dumps(data_to_cache).decode("utf-8")
             )
             logger.info(f"[RedisCache] 写入缓存成功: query='{query}', ttl={self.ttl}s")
         except Exception as e:

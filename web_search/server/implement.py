@@ -242,7 +242,7 @@ class ToutiaoEngine(SearchEngine):
 class DuckDuckGoEngine(SearchEngine):
     def __init__(self):
         super().__init__()
-        ddgs = DDGS()
+        self.ddgs = DDGS()
 
     async def search(self, query: str, topk: int):
         logger.info(f"[DuckDuckGoEngine] 开始搜索: query='{query}', topk={topk}")
