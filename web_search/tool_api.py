@@ -25,8 +25,9 @@ from web_search.server.implement import (
     ToutiaoEngine,
     DuckDuckGoEngine,
     BiliEngine,
+    TavilyEngine,
 )
-from web_search.server.crawl import crawl2md, crawl_batch2md
+from web_search.server.crawl import crawl2md, crawl_batch2md, extract_top_chunks
 from web_search.server.cache import SearchCache
 from web_search.server.aggregator import SearchAggregator
 from web_search.config.logging_config import setup_logger, logger
@@ -43,6 +44,7 @@ DEFAULT_ENGINES: List[SearchEngine] = [
     ToutiaoEngine(),
     DuckDuckGoEngine(),
     BiliEngine(),
+    TavilyEngine(),
 ]
 
 global_aggregator = SearchAggregator(engines=DEFAULT_ENGINES)
@@ -92,16 +94,20 @@ async def crawl2md_tool(link: str) -> str:
 
 
 async def crawl_batch2md_tool(
-    links: List[str], format_as_text: bool = True, use_cache: bool = True
+    links: List[str],
+    query: Optional[str] = None,
+    format_as_text: bool = True,
+    use_cache: bool = True,
+    compress_tokens: bool = True,
 ) -> Union[str, Dict[str, str]]:
-    """带 Redis 缓存保护的批量并发网页抓取工具"""
+    """带 Redis 缓存与 Token 压缩的批量网页抓取工具"""
     if not links:
         return "" if format_as_text else {}
 
     final_results: Dict[str, str] = {}
     uncached_links: List[str] = []
 
-    # 1. 尝试从 Redis 批量读取缓存 (MGET)
+    # 1. 查缓存
     if use_cache:
         cached_map = await global_cache.get_batch_url_contents(links)
         for url in links:
@@ -110,37 +116,51 @@ async def crawl_batch2md_tool(
                 final_results[url] = content
             else:
                 uncached_links.append(url)
-
-        hit_count = len(links) - len(uncached_links)
-        logger.info(f"[crawl_batch2md_tool] URL 缓存命中: {hit_count}/{len(links)}")
     else:
         uncached_links = links
 
-    # 2. 对未命中的 URL 触发真实的底层 Chromium 爬虫抓取
+    # 2. 爬取未命中 URL
     if uncached_links:
-        logger.info(
-            f"[crawl_batch2md_tool] 启动爬取未缓存 URL，数量: {len(uncached_links)}"
-        )
-        newly_crawled_map = await crawl_batch2md(uncached_links)  # [cite: 13]
-
-        # 3. 异步回写 Redis 缓存 (设置 24 小时 TTL)
+        newly_crawled_map = await crawl_batch2md(uncached_links, format_type="llm")
         if use_cache and newly_crawled_map:
             await global_cache.set_batch_url_contents(newly_crawled_map, ttl=86400)
-
-        # 合并新抓取到的结果
         final_results.update(newly_crawled_map)
 
-    if not format_as_text:
-        return final_results
+    # 3. 按需进行 Chunk 截断与 Token 压缩
+    processed_results: Dict[str, str] = {}
+    for url, raw_content in final_results.items():
+        if compress_tokens and query and len(raw_content) > 1000:
+            # 仅提取与 Query 最相关的 Top 2 个 Chunk
+            processed_results[url] = extract_top_chunks(
+                raw_content, query, top_chunks_count=2
+            )
+        else:
+            processed_results[url] = raw_content
 
-    # 4. 在内存中格式化拼接 Prompt 文本
+    if not format_as_text:
+        return processed_results
+
+    # 4. 组装最终喂给 LLM 的干净上下文
     formatted_chunks = []
-    for idx, (url, content) in enumerate(final_results.items(), 1):
+    for idx, (url, content) in enumerate(processed_results.items(), 1):
         chunk = f"### [Document {idx}] URL: {url}\n\n{content}\n"
         formatted_chunks.append(chunk)
 
-    aggregated_text = "\n" + "=" * 40 + "\n\n" + "\n\n".join(formatted_chunks)
-    return aggregated_text
+    return "\n" + "=" * 40 + "\n\n" + "\n\n".join(formatted_chunks)
+
+
+def format_results_for_llm(results: List[SearchResult]) -> str:
+    """格式化为适合直接喂给 Agent 的简明摘要"""
+    if not results:
+        return "No results found."
+    lines = []
+    for i, r in enumerate(results, 1):
+        lines.append(f"[{i}] {r.title}")
+        lines.append(f"    URL: {r.link} (Source: {r.source_engine})")
+        if r.snippet:
+            lines.append(f"    Snippet: {r.snippet}")
+        lines.append("")
+    return "\n".join(lines).rstrip()
 
 
 if __name__ == "__main__":

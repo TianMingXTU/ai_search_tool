@@ -15,11 +15,11 @@ Example:
 
 """
 
-import json
 import re
 import hashlib
 import time
 from typing import List, Optional, Dict, Tuple
+import orjson
 import redis.asyncio as redis
 from web_search.config.model import SearchResult
 from web_search.config.logging_config import logger
@@ -105,7 +105,7 @@ class SearchCache:
             cached_data = await self.redis_client.get(key)
             if cached_data:
                 logger.info(f"[RedisCache] 命中缓存: query='{query}'")
-                items = json.loads(cached_data)
+                items = orjson.loads(cached_data)
                 return [SearchResult(**item) for item in items]
         except Exception as e:
             logger.error(f"[RedisCache] 读取缓存失败: {e}")
@@ -130,7 +130,7 @@ class SearchCache:
                 for item in results
             ]
             await self.redis_client.setex(
-                key, self.ttl, json.dumps(data_to_cache, ensure_ascii=False)
+                key, self.ttl, payload=orjson.dumps(data_to_cache).decode("utf-8")
             )
             logger.info(f"[RedisCache] 写入缓存成功: query='{query}', ttl={self.ttl}s")
         except Exception as e:

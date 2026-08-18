@@ -1,9 +1,9 @@
 """implement module.
 
 FILENAME    : implement.py
-Date        : 2026/08/14 10:16:32
+Date        : 2026/08/18 20:59:06
 Author      : Huijian Qin
-Version     : 1.0.1
+Version     : 1.0.3
 Description : 搜索引擎具体实现
 
 Attributes:
@@ -17,6 +17,7 @@ Example:
 
 import json
 import asyncio
+from typing import List
 from bs4 import BeautifulSoup
 from curl_cffi import requests
 from ddgs import DDGS
@@ -241,6 +242,7 @@ class ToutiaoEngine(SearchEngine):
 class DuckDuckGoEngine(SearchEngine):
     def __init__(self):
         super().__init__()
+        ddgs = DDGS()
 
     async def search(self, query: str, topk: int):
         logger.info(f"[DuckDuckGoEngine] 开始搜索: query='{query}', topk={topk}")
@@ -268,8 +270,7 @@ class DuckDuckGoEngine(SearchEngine):
         return results
 
     def _fetch_sync(self, query: str, topk: int):
-        with DDGS() as ddgs:
-            return list(ddgs.text(query, max_results=topk))
+        return list(self.ddgs.text(query, max_results=topk))
 
 
 class BiliEngine(SearchEngine):
@@ -310,8 +311,59 @@ class BiliEngine(SearchEngine):
         return results
 
 
+class TavilyEngine(SearchEngine):
+
+    def __init__(self):
+        super().__init__()
+        self.url = "https://api.tavily.com/search"
+        self.session = requests.AsyncSession(impersonate="chrome120")
+
+    async def search(self, query: str, topk: int) -> List[SearchResult]:
+        logger.info(f"[TavilyEngine] 开始搜索: query='{query}', topk={topk}")
+        results = []
+        payload = {
+            "query": query,
+            "max_results": topk,
+            "search_depth": "basic",
+        }
+        req_headers = {
+            "Content-Type": "application/json",
+            "X-Tavily-Access-Mode": "keyless",
+        }
+        try:
+            resp = await self.session.post(
+                self.url,
+                headers=req_headers,
+                json=payload,
+                timeout=10,
+            )
+            if resp.status_code == 200:
+                data = resp.json()
+                for item in data.get("results", []):
+                    title = item.get("title", "").strip()
+                    link = item.get("url", "").strip()
+                    snippet = item.get("content", "").strip()
+                    if title and link:
+                        results.append(
+                            SearchResult(
+                                title=title,
+                                link=link,
+                                snippet=snippet,
+                                source_engine="Tavily",
+                            )
+                        )
+        except Exception as e:
+            logger.error(f"[TavilyEngine] 搜索异常: {e}")
+
+        if not results:
+            logger.warning(f"[TavilyEngine] 未找到关于「{query}」的相关结果")
+
+        logger.info(f"[TavilyEngine] 成功召回 {len(results)} 条结果")
+        return results
+
+
 if __name__ == "__main__":
 
-    s = DuckDuckGoEngine()
+    s = TavilyEngine()
     result = asyncio.run(s.search("人工智能", 3))
     print(result)
