@@ -20,9 +20,9 @@ from dataclasses import dataclass, field
 
 @dataclass
 class SearchResult:
-    title: str
-    link: str
-    snippet: str
-    source_engine: str
-    video_url: str
+    title: str = ""
+    link: str = ""
+    snippet: str = ""
+    source_engine: str = ""
+    video_url: str = ""
     is_ad: bool = False  # 预留
