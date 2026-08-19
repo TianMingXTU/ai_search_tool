@@ -27,6 +27,7 @@ from web_search.server.implement import (
     BiliEngine,
     TavilyEngine,
     DouyinEngine,
+    GithubEngine,
 )
 from web_search.server.crawl import crawl2md, crawl_batch2md, extract_top_chunks
 from web_search.server.cache import SearchCache
@@ -47,6 +48,7 @@ DEFAULT_ENGINES: List[SearchEngine] = [
     BiliEngine(),
     TavilyEngine(),
     DouyinEngine(),
+    GithubEngine(),
 ]
 
 global_aggregator = SearchAggregator(engines=DEFAULT_ENGINES)

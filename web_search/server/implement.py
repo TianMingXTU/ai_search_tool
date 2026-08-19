@@ -15,6 +15,7 @@ Example:
 
 """
 
+import re
 import json
 import asyncio
 import urllib
@@ -472,8 +473,116 @@ class DouyinEngine(SearchEngine):
         return results
 
 
+class GithubEngine(SearchEngine):
+    """基于 GitHub 官方 REST API 的开源仓库搜索引擎
+    具备关键词清洗、多词降级、SSL容错与标准 SearchResult 封装
+    """
+
+    def __init__(self):
+        super().__init__()
+        self.api_url = "https://api.github.com/search/repositories"
+        self.headers = {
+            "User-Agent": "bigOClaw-web-search",
+            "Accept": "application/vnd.github+json",
+        }
+        # 使用 curl_cffi 异步会话，自带 TLS/SSL 兼容性
+        self.session = requests.AsyncSession(impersonate="chrome120")
+
+    async def _fetch_api(self, q: str, topk: int) -> list:
+        """底层异步请求，带 SSL 容错"""
+        params = {"q": q, "per_page": topk}
+        try:
+            resp = await self.session.get(
+                self.api_url,
+                params=params,
+                headers=self.headers,
+                timeout=12,
+                verify=True,
+            )
+        except Exception as e:
+            # 捕获 SSL 错误并降级重试
+            if "certificate" in str(e).lower() or "ssl" in str(e).lower():
+                resp = await self.session.get(
+                    self.api_url,
+                    params=params,
+                    headers=self.headers,
+                    timeout=12,
+                    verify=False,
+                )
+            else:
+                raise e
+
+        if resp.status_code == 403:
+            logger.warning("[GithubEngine] GitHub API 速率限制 (403 Rate Limit)")
+            return []
+        if resp.status_code != 200:
+            logger.error(f"[GithubEngine] 请求失败 HTTP {resp.status_code}")
+            return []
+
+        return resp.json().get("items", [])
+
+    async def search(self, query: str, topk: int) -> List[SearchResult]:
+        logger.info(f"[GithubEngine] 开始搜索: query='{query}', topk={topk}")
+        results = []
+
+        # 1. 净化 query，剔除 github.com / github 等冗余词
+        clean_q = re.sub(r"github\.com|github", " ", query, flags=re.IGNORECASE)
+        clean_q = re.sub(r"\s+", " ", clean_q).strip() or query
+
+        try:
+            items = await self._fetch_api(clean_q, topk)
+
+            # 2. 降级重试策略：多词查询无结果时，尝试只搜第一个关键词
+            if not items and len(clean_q.split()) > 1:
+                first_term = clean_q.split()[0]
+                logger.debug(
+                    f"[GithubEngine] 多词检索命中为空，降级单词重试: '{first_term}'"
+                )
+                items = await self._fetch_api(first_term, topk)
+
+            # 3. 解析并组装为系统的 SearchResult
+            for item in items:
+                if len(results) >= topk:
+                    break
+                name = item.get("full_name", "")
+                stars = item.get("stargazers_count") or 0
+                lang = item.get("language") or ""
+                desc = (item.get("description") or "").strip()
+                repo_url = item.get("html_url", "")
+
+                meta_parts = []
+                if stars:
+                    meta_parts.append(f"⭐{stars}")
+                if lang:
+                    meta_parts.append(f"[{lang}]")
+                meta_str = f" {' '.join(meta_parts)}" if meta_parts else ""
+
+                title = f"{name}{meta_str}"
+                snippet = desc if desc else f"GitHub repository for {name}"
+
+                if name and repo_url:
+                    results.append(
+                        SearchResult(
+                            title=title,
+                            link=repo_url,
+                            snippet=snippet,
+                            source_engine="GitHub",
+                            video_url="",
+                        )
+                    )
+
+        except Exception as e:
+            logger.error(f"[GithubEngine] 搜索异常: {e}")
+
+        if not results:
+            logger.warning(f"[GithubEngine] 未找到关于「{query}」的仓库")
+
+        logger.info(f"[GithubEngine] 成功召回 {len(results)} 条结果")
+        return results
+
+
 if __name__ == "__main__":
 
-    s = DouyinEngine()
+    s = GithubEngine()
     result = asyncio.run(s.search("大模型", 3))
     print(result)
