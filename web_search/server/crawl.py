@@ -14,7 +14,6 @@ import json
 import re
 import asyncio
 import ssl
-from urllib.parse import urlparse
 from typing import List, Dict
 import html2text
 import httpx

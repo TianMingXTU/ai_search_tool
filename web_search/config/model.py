@@ -1,9 +1,9 @@
 """model module.
 
 FILENAME    : model.py
-Date        : 2026/08/09 20:54:41
+Date        : 2026/08/19 10:58:25
 Author      : Huijian Qin
-Version     : 1.0.0
+Version     : 1.0.1
 Description : 定义网络搜索结果
 
 Attributes:
@@ -24,4 +24,5 @@ class SearchResult:
     link: str
     snippet: str
     source_engine: str
+    video_url: str
     is_ad: bool = False  # 预留
