@@ -17,9 +17,9 @@ Example:
 
 import math
 import asyncio
-from typing import List, Set, Dict
+from typing import List, Set, Dict, Optional
 from web_search.config.abstract import SearchEngine
-from web_search.config.model import SearchResult
+from web_search.config.model import SearchResult, UserCredentials
 from web_search.server.filter import extract_keywords
 from web_search.config.logging_config import logger
 
@@ -108,7 +108,11 @@ class SearchAggregator:
         self.ranker = global_ranker
 
     async def aggregate_search(
-        self, query: str, topk: int, timeout: float = 6.0
+        self,
+        query: str,
+        topk: int,
+        timeout: float = 6.0,
+        credentials: Optional[UserCredentials] = None,
     ) -> List[SearchResult]:
         """并发请求搜索引擎，满足 First-N (topk * 2) 数量即提前截断返回"""
         logger.info(
@@ -117,7 +121,9 @@ class SearchAggregator:
 
         # 创建所有引擎的异步任务
         task_map = {
-            asyncio.create_task(engine.search(query, topk)): engine
+            asyncio.create_task(
+                engine.search(query, topk, credentials=credentials)
+            ): engine
             for engine in self.engines
         }
 

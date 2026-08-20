@@ -17,12 +17,15 @@ Example:
 
 from typing import List
 from abc import ABC, abstractmethod
-from web_search.config.model import SearchResult
+from typing import List, Optional
+from web_search.config.model import SearchResult, UserCredentials
 
 
 class SearchEngine(ABC):
     @abstractmethod
-    async def search(self, query: str, topk: int) -> List[SearchResult]:
+    async def search(
+        self, query: str, topk: int, credentials: Optional[UserCredentials] = None
+    ) -> List[SearchResult]:
         """search
 
         Args:

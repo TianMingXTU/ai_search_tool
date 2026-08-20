@@ -32,6 +32,7 @@ from web_search.tool_api import (
     crawl2md_tool,
     format_results_for_llm,
 )
+from web_search.config.model import UserCredentials
 
 
 def _is_crawl_failed(content: str) -> bool:
@@ -91,6 +92,12 @@ def parse_args():
         action="store_true",
         help="禁用正文滑动切块与 Token 压缩，返回完整正文",
     )
+    parser.add_argument(
+        "--douyin-cookie",
+        type=str,
+        default=None,
+        help="（可选）用户自定义抖音登录 Cookie 凭证",
+    )
     return parser.parse_args()
 
 
@@ -106,10 +113,14 @@ async def run_pipeline(args):
             raise ValueError("在 'pipeline' 模式下，必须提供 --query 参数！")
 
         # 1. 阶段一：多引擎竞速聚合搜索与 BM25 排序 (带 Redis 搜索级缓存)
-        search_results = await aggregated_web_search_tool(
-            query=args.query, topk=args.topk, use_cache=use_cache
-        )
+        credentials = UserCredentials(douyin_cookie=args.douyin_cookie)
 
+        search_results = await aggregated_web_search_tool(
+            query=args.query,
+            topk=args.topk,
+            use_cache=use_cache,
+            credentials=credentials,
+        )
         valid_links = [item.link for item in search_results if item and item.link]
 
         markdown_contents = {}

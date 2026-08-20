@@ -17,7 +17,7 @@ Example:
 
 from typing import Any, List, Dict, Literal, Optional, Union
 
-from web_search.config.model import SearchResult
+from web_search.config.model import SearchResult, UserCredentials
 from web_search.config.abstract import SearchEngine
 from web_search.server.implement import (
     BingEngine,
@@ -55,7 +55,10 @@ global_aggregator = SearchAggregator(engines=DEFAULT_ENGINES)
 
 
 async def aggregated_web_search_tool(
-    query: str, topk: int = 5, use_cache: bool = True
+    query: str,
+    topk: int = 5,
+    use_cache: bool = True,
+    credentials: Optional[UserCredentials] = None,
 ) -> List[SearchResult]:
     """聚合网络搜索工具：带 Redis 缓存 + 多搜索引擎并发聚合 + 去重打分重排
 

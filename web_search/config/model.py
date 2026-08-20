@@ -16,6 +16,15 @@ Example:
 """
 
 from dataclasses import dataclass, field
+from typing import Optional, Dict
+
+
+@dataclass
+class UserCredentials:
+    douyin_cookie: Optional[str] = None
+    tavily_api_key: Optional[str] = None
+    github_token: Optional[str] = None
+    custom_headers: Dict[str, str] = field(default_factory=dict)
 
 
 @dataclass
