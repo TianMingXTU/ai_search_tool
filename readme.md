@@ -63,6 +63,12 @@ ai_search_tool/
 pip install redis orjson curl_cffi httpx html2text beautifulsoup4 lxml jieba ddgs bilibili-api-python loguru
 ```
 
+### 环境变量
+
+| 变量名 | 说明 |
+|--------|------|
+| `DOUYIN_FALLBACK_COOKIE` | 抖音搜索引擎的登录 Cookie，可作为全局 fallback 凭证 |
+
 ---
 
 ## 4. 命令行参数 (CLI Arguments)
@@ -75,6 +81,7 @@ pip install redis orjson curl_cffi httpx html2text beautifulsoup4 lxml jieba ddg
 | `--url` | `-u` | `string` | `None` | 指定抓取的单个 URL（`crawl` 模式必填） |
 | `--no-cache` | — | `flag` | `False` | 禁用内存 / Redis 缓存，强制发起实时网络请求 |
 | `--no-compress` | — | `flag` | `False` | 禁用正文滑动切块与 Token 压缩，返回完整正文 |
+| `--douyin-cookie` | — | `string` | `None` | 自定义抖音登录 Cookie 凭证（不传则读取环境变量 `DOUYIN_FALLBACK_COOKIE`） |
 
 ### 运行示例
 
@@ -252,9 +259,28 @@ orjson 快速输出 JSON 到 stdout
 
 - **webclaw 为可选依赖**：若已安装并位于 `PATH`，将获得更好的 Token 压缩率；未安装时系统完全正常运作，仅抓取质量略低（使用 `httpx` + `html2text` 替代）。
 - **网络波动**：DuckDuckGo 与海外站点在部分网络环境下可能存在连通性问题，系统已内置 First-N 竞速熔断与全局超时防护，不会拖慢整体响应。
-- **抖音引擎**：需维护有效的 Cookie（见 `DouyinEngine.__init__`），Cookie 失效时将返回空结果。
-- **GitHub 引擎**：使用 GitHub 官方 REST API，存在每 IP 每小时 60 次的速率限制（403 时自动降级为空结果）。Query 中的 `github.com` / `github` 等冗余词会自动剔除。
+- **抖音引擎**：需维护有效的 Cookie（见 `DouyinEngine.__init__`），Cookie 失效时将返回空结果。可通过 `--douyin-cookie` 参数传递，或设置环境变量 `DOUYIN_FALLBACK_COOKIE` 作为全局 fallback 凭证。
+- **GitHub 引擎**：使用 GitHub 官方 REST API，存在每 IP 每小时 60 次的速率限制（403 时自动降级为空结果）。Query 中的 `github.com` / `github` 等冗余词会自动剔除。支持 SSL 容错与多词降级重试。
+- **Tavily / GitHub 凭证**：通过 `UserCredentials` 对象传入（`tool_api.py`），支持 `tavily_api_key` 与 `github_token`。
 - **日志位置**：默认输出至 `<project>/logs/app.log`，按 10MB 自动切分，保留 7 天。
+
+---
+
+## 10. 扩展指南
+
+本项目采用抽象基类 `SearchEngine`（定义于 `config/abstract.py`），可快速接入新的搜索引擎。只需实现以下方法即可：
+
+```python
+from web_search.config.abstract import SearchEngine
+from web_search.config.model import SearchResult, UserCredentials
+
+class MyEngine(SearchEngine):
+    async def search(self, query: str, topk: int, credentials: Optional[UserCredentials] = None) -> List[SearchResult]:
+        # 实现搜索逻辑，返回 SearchResult 列表
+        ...
+```
+
+然后将其加入 `tool_api.py` 的 `DEFAULT_ENGINES` 列表即可生效。
 
 ---
 

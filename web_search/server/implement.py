@@ -27,7 +27,6 @@ from curl_cffi import requests
 from ddgs import DDGS
 from web_search.config.abstract import SearchEngine
 from web_search.config.model import SearchResult, UserCredentials
-from web_search.server.filter import filtering
 from bilibili_api import select_client
 from bilibili_api import search as bili_search
 from web_search.config.logging_config import logger

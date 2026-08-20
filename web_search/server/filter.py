@@ -7,8 +7,10 @@ Description : 采用语言感知策略与智能分词过滤广告及不相干网
 """
 
 import re
+import jieba
 import jieba.posseg as pseg
 
+jieba.initialize()
 # 中文停用词表
 STOPWORDS = {
     "的",

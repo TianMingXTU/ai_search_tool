@@ -173,7 +173,7 @@ class SearchAggregator:
                     t.cancel()
 
         # 使用轻量 BM25 打分重排
-        scored_results = self.ranker.rank(query, deduplicated_results)
+        scored_results = await asyncio.to_thread(self.ranker.rank, query, deduplicated_results)
         final_results = scored_results[:topk]
 
         logger.info(

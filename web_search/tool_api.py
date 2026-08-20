@@ -15,6 +15,8 @@ Example:
 
 """
 
+import inspect
+
 from typing import Any, List, Dict, Literal, Optional, Union
 
 from web_search.config.model import SearchResult, UserCredentials
@@ -168,6 +170,24 @@ def format_results_for_llm(results: List[SearchResult]) -> str:
             lines.append(f"    Snippet: {r.snippet}")
         lines.append("")
     return "\n".join(lines).rstrip()
+
+
+async def close_global_resources():
+    """安全释放 Redis 连接池与异步 HTTP 会话"""
+    if hasattr(global_cache, "close"):
+        await global_cache.close()
+
+    # 遍历引擎，尝试关闭其底层的 httpx/curl_cffi session
+    for engine in global_aggregator.engines:
+        if hasattr(engine, "session") and hasattr(engine.session, "close"):
+            # 兼容异步 close
+            try:
+                if inspect.iscoroutinefunction(engine.session.close):
+                    await engine.session.close()
+                else:
+                    engine.session.close()
+            except Exception:
+                pass
 
 
 if __name__ == "__main__":

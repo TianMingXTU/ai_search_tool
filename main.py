@@ -31,6 +31,7 @@ from web_search.tool_api import (
     crawl_batch2md_tool,
     crawl2md_tool,
     format_results_for_llm,
+    close_global_resources,
 )
 from web_search.config.model import UserCredentials
 
@@ -235,8 +236,16 @@ async def run_pipeline(args):
 
 def main():
     args = parse_args()
+
+    async def _runner():
+        try:
+            return await run_pipeline(args)
+        finally:
+            # 无论成功还是抛出异常，都确保资源被优雅回收
+            await close_global_resources()
+
     try:
-        output = asyncio.run(run_pipeline(args))
+        output = asyncio.run(_runner())
 
         # 使用 orjson 快速序列化并输出至 stdout 供 AI Agent / 平台直接消费
         sys.stdout.buffer.write(orjson.dumps(output))

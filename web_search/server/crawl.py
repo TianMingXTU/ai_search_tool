@@ -123,12 +123,18 @@ async def crawl2md(
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )
-        stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=timeout + 3)
+        try:
+            stdout, stderr = await asyncio.wait_for(
+                proc.communicate(), timeout=timeout + 3
+            )
 
-        if proc.returncode == 0 and stdout:
-            content = stdout.decode("utf-8", errors="ignore").strip()
-            if content:
-                return content
+            if proc.returncode == 0 and stdout:
+                content = stdout.decode("utf-8", errors="ignore").strip()
+                if content:
+                    return content
+        except asyncio.TimeoutError:
+            proc.kill()
+            await proc.wait()
     except Exception:
         pass
 
