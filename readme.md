@@ -9,7 +9,7 @@
 | 阶段 | 功能 | 核心技术 |
 |------|------|---------|
 | **Search** | 八源并发召回与 BM25 竞速重排 | First-N 熔断 + 轻量级 BM25 算法 + 双层缓存 |
-| **Crawl** | 批量并发抓取与 Token 压缩 | `webclaw` CLI（-f llm，约 90% Token 压缩）+ 静态降级兜底 |
+| **Crawl** | 批量并发抓取与 Token 压缩 | `webclaw` CLI（可选增强）/ `httpx` 静态拉取兜底 + 滑动窗口切块 |
 
 ### 核心特性
 
@@ -17,8 +17,8 @@
 - 🎯 **轻量级 BM25 重排**：纯 CPU 毫秒级计算，零模型内存开销，结合 IDF 与标题强匹配对多源结果精准打分。
 - 🧠 **语言感知过滤**：基于 jieba 词性标注智能分词，自动适配中文 / 英文 / 中英混合场景，彻底拦截广告与噪声。
 - ⚡ **超高速双层缓存**：进程内内存缓存 + 异步 Redis 缓存，结合 `orjson` 极速二进制序列化与 TopK 向上对齐机制。
-- ✂️ **Token 智能压缩**：默认采用 `webclaw -f llm` 格式；长文本自动执行滑动窗口切块，复用 BM25 挑选 Top 2~3 个相关 Chunk 组装 Context，大幅节省 LLM 上下文与推理开销。
-- 🛡️ **低配环境友好与容灾**：彻底移除重型依赖，降低内存占用；静态抓取支持 SSL 报错自动降级重试与 Content-Type 防护。
+- ✂️ **Token 智能压缩**：优先使用 `webclaw -f llm` 格式（可选依赖，见第 3 节）以获得更高压缩率；未安装时自动降级至 `httpx` 静态拉取 + `html2text` 解析，长文本仍会执行滑动窗口切块，复用 BM25 挑选 Top 2 个相关 Chunk 组装 Context。
+- 🛡️ **弱依赖容灾**：`webclaw` 为可选增强依赖——未在 `PATH` 中或未安装时，系统自动降级使用纯 Python 实现（`httpx` + `html2text`），功能不缺失，仅 Token 压缩比略低于 `webclaw -f llm` 模式。静态抓取支持 SSL 报错自动降级重试与 Content-Type 防护。
 - 📱 **视频内容支持**：Douyin 引擎额外携带 `video_url` 字段，便于后续视频内容处理。
 - 💻 **开源仓库搜索**：GitHub 引擎通过官方 REST API 搜索仓库，自动清洗 Query 并支持多词降级重试，返回含 Stars / Language 元信息。
 
@@ -43,7 +43,7 @@ ai_search_tool/
         ├── aggregator.py      # 竞速聚合器与全局单例 BM25Ranker（First-N 熔断 / 去重 / BM25 重排）
         ├── implement.py       # 八大搜索引擎实现（Bing / Baidu / Toutiao / DuckDuckGo / Bili / Tavily / Douyin / GitHub）
         ├── cache.py           # 内存 + Redis 双层缓存（基于 orjson 高性能序列化）
-        ├── crawl.py           # webclaw 异步子进程抓取 + 静态降级 + 滑动窗口切块算法
+        ├── crawl.py           # webclaw 子进程抓取（可选）+ httpx 静态降级 + 滑动窗口切块算法
         └── filter.py          # 语言感知相关性过滤与广告识别（jieba 词性分词）
 ```
 
@@ -54,8 +54,8 @@ ai_search_tool/
 ### 前置要求
 
 - **Python**：3.10+（推荐基于 `uv` 或 `venv` 管理依赖环境）
-- **webclaw CLI**：需在系统环境安装并配置好 `webclaw` 可执行文件，已加入全局 `PATH`
-- **Redis**：默认连接 `localhost:6379`（可在 `tool_api.py` 调整）。Redis 异常时自动降级跳过，不阻断主流程
+- **Redis**：默认连接 `localhost:6379`（可在 `tool_api.py` 调整）。Redis 异常时自动降级为纯内存缓存，不阻断主流程
+- **webclaw CLI（可选增强）**：若已安装并加入 `PATH`，系统将优先调用 `webclaw` 执行高压缩率抓取（`-f llm` 模式，约 90% Token 压缩）；未安装时自动降级至 `httpx` 静态拉取 + `html2text` 解析，搜索与抓取功能完整可用
 
 ### Python 依赖
 
@@ -79,7 +79,7 @@ pip install redis orjson curl_cffi httpx html2text beautifulsoup4 lxml jieba ddg
 ### 运行示例
 
 ```bash
-# 完整 Pipeline：搜索 + BM25 重排 + webclaw 抓取 + Token 滑动切块压缩
+# 完整 Pipeline：搜索 + BM25 重排 + 抓取 + Token 滑动切块压缩
 python main.py --query "Python asyncio 异步编程最佳实践" --topk 3
 
 # 纯搜索模式：快速获取重排后的摘要与链接
@@ -226,10 +226,11 @@ ProcessUtil.run_python(
 ┌─────────────────────────────────────────────────────────────┐
 │ 阶段二：抓取与 Token 压缩 (crawl_batch2md_tool)             │
 │  1. Redis MGET 批量查 URL 内容缓存                          │
-│  2. 未命中 → 异步调起 webclaw CLI 批量抓取（-f llm 格式）    │
-│     （失败自动降级为 httpx SSL 容错拉取 + html2text 解析）   │
+│  2. 未命中 → 优先调起 webclaw CLI 批量抓取（-f llm，可选）  │
+│     ↓ 若 webclaw 不可用则自动降级                           │
+│     → httpx 静态拉取 + html2text 解析                       │
 │  3. 回写 Redis（TTL 24h）                                    │
-│  4. 滑动窗口切块（Chunking）+ BM25 提取 Top 2~3 个相关段落   │
+│  4. 滑动窗口切块（Chunking）+ BM25 提取 Top 2 个相关段落    │
 │  5. 组装 aggregated_markdown 投喂大模型                      │
 └─────────────────────────────────────────────────────────────┘
    │
@@ -249,7 +250,7 @@ orjson 快速输出 JSON 到 stdout
 
 ## 9. 注意事项
 
-- **外部依赖**：请确保宿主机已安装 `webclaw` CLI 并已加入全局 `PATH`。
+- **webclaw 为可选依赖**：若已安装并位于 `PATH`，将获得更好的 Token 压缩率；未安装时系统完全正常运作，仅抓取质量略低（使用 `httpx` + `html2text` 替代）。
 - **网络波动**：DuckDuckGo 与海外站点在部分网络环境下可能存在连通性问题，系统已内置 First-N 竞速熔断与全局超时防护，不会拖慢整体响应。
 - **抖音引擎**：需维护有效的 Cookie（见 `DouyinEngine.__init__`），Cookie 失效时将返回空结果。
 - **GitHub 引擎**：使用 GitHub 官方 REST API，存在每 IP 每小时 60 次的速率限制（403 时自动降级为空结果）。Query 中的 `github.com` / `github` 等冗余词会自动剔除。
@@ -257,4 +258,4 @@ orjson 快速输出 JSON 到 stdout
 
 ---
 
-*作者：Huijian Qin · 版本：v1.0.3 · 更新日期：2026-08-19*
+*作者：Huijian Qin · 版本：v1.0.4 · 更新日期：2026-08-20*
