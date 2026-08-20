@@ -34,6 +34,17 @@ from web_search.tool_api import (
 )
 
 
+def _is_crawl_failed(content: str) -> bool:
+    """统一判断抓取结果是否为失败状态"""
+    if not content:
+        return True
+    failed_indicators = [
+        "web内容获取失败",
+        "内容抓取失败",
+    ]
+    return any(content.startswith(ind) for ind in failed_indicators)
+
+
 def parse_args():
     parser = argparse.ArgumentParser(
         description="基于 BM25 竞速重排与轻量 Token 压缩的 AI 聚合搜索与抓取工具"
@@ -117,8 +128,9 @@ async def run_pipeline(args):
             # 在内存中高效拼装喂给大模型的 Context
             formatted_chunks = []
             for idx, (url, content) in enumerate(markdown_contents.items(), 1):
-                chunk = f"### [Document {idx}] URL: {url}\n\n{content}\n"
-                formatted_chunks.append(chunk)
+                if not _is_crawl_failed(content):
+                    chunk = f"### [Document {idx}] URL: {url}\n\n{content}\n"
+                    formatted_chunks.append(chunk)
 
             aggregated_markdown = (
                 "\n" + "=" * 40 + "\n\n" + "\n\n".join(formatted_chunks)
@@ -192,6 +204,15 @@ async def run_pipeline(args):
             compress_tokens=compress_tokens,
         )
         url_markdown = content_map.get(args.url, "内容抓取失败")
+
+        if _is_crawl_failed(url_markdown):
+            return {
+                "status": "error",
+                "mode": "crawl",
+                "url": args.url,
+                "error_message": url_markdown,
+                "markdown_content": "",
+            }
 
         return {
             "status": "success",

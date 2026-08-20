@@ -583,6 +583,6 @@ class GithubEngine(SearchEngine):
 
 if __name__ == "__main__":
 
-    s = GithubEngine()
+    s = DouyinEngine()
     result = asyncio.run(s.search("大模型", 3))
     print(result)
