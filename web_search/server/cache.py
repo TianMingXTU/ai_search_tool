@@ -26,23 +26,18 @@ from web_search.config.logging_config import logger
 
 
 class SearchCache:
-    def __init__(
-        self,
-        host: str = "localhost",
-        port: int = 6379,
-        db: int = 0,
-        password: Optional[str] = None,
-        ttl: int = 3600,  # 默认缓存 1 小时
-    ):
+    def __init__(self, host="localhost", port=6379, ttl=3600):
         self.ttl = ttl
-        self._memory_cache: Dict[str, Tuple[float, List[SearchResult]]] = {}
-        self.redis_client = redis.Redis(
-            host=host,
-            port=port,
-            db=db,
-            password=password,
-            decode_responses=True,
-        )
+        self._memory_cache = {}
+        self._redis_available = False
+        try:
+            self.redis_client = redis.Redis(
+                host=host, port=port, db=0, decode_responses=True
+            )
+            self.redis_client.ping()
+            self._redis_available = True
+        except Exception as e:
+            logger.warning(f"[Cache] Redis 不可用，将仅使用内存缓存: {e}")
 
     @staticmethod
     def _normalize_query(query: str) -> str:
@@ -102,6 +97,8 @@ class SearchCache:
             else:
                 del self._memory_cache[key]
         try:
+            if not self._redis_available:
+                return None
             cached_data = await self.redis_client.get(key)
             if cached_data:
                 logger.info(f"[RedisCache] 命中缓存: query='{query}'")

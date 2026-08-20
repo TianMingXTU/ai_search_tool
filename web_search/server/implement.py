@@ -52,7 +52,7 @@ class BingEngine(SearchEngine):
         self.url = "https://www.bing.com/search?"
         self.session = requests.AsyncSession(impersonate="chrome120")
 
-    async def search(self, query: str, topk: int):
+    async def search(self, query: str, topk: int, credentials: Optional[UserCredentials] = None):
         logger.info(f"[BingEngine] 开始搜索: query='{query}', topk={topk}")
         try:
             resp = await self.session.get(
@@ -129,7 +129,7 @@ class BaiduEngine(SearchEngine):
         self.url = "https://wap.baidu.com/s"
         self.session = requests.AsyncSession(impersonate="chrome120")
 
-    async def search(self, query: str, topk: int):
+    async def search(self, query: str, topk: int, credentials: Optional[UserCredentials] = None):
         logger.info(f"[BaiduEngine] 开始搜索: query='{query}', topk={topk}")
         try:
             resp = await self.session.get(
@@ -198,7 +198,7 @@ class ToutiaoEngine(SearchEngine):
         self.url = "https://so.toutiao.com/search"
         self.session = requests.AsyncSession(impersonate="chrome120")
 
-    async def search(self, query: str, topk: int):
+    async def search(self, query: str, topk: int, credentials: Optional[UserCredentials] = None):
         logger.info(f"[ToutiaoEngine] 开始搜索: query='{query}', topk={topk}")
         try:
             resp = await self.session.get(
@@ -248,7 +248,7 @@ class DuckDuckGoEngine(SearchEngine):
         super().__init__()
         self.ddgs = DDGS()
 
-    async def search(self, query: str, topk: int):
+    async def search(self, query: str, topk: int, credentials: Optional[UserCredentials] = None):
         logger.info(f"[DuckDuckGoEngine] 开始搜索: query='{query}', topk={topk}")
         results = []
         try:
@@ -282,7 +282,7 @@ class BiliEngine(SearchEngine):
         super().__init__()
         select_client("curl_cffi")
 
-    async def search(self, query: str, topk: int):
+    async def search(self, query: str, topk: int, credentials: Optional[UserCredentials] = None):
         logger.info(f"[BiliEngine] 开始搜索: query='{query}', topk={topk}")
         try:
             results = []
