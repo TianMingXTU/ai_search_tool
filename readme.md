@@ -60,7 +60,7 @@ ai_search_tool/
 ### Python 依赖
 
 ```bash
-pip install redis orjson curl_cffi httpx html2text beautifulsoup4 lxml jieba ddgs bilibili-api-python loguru
+pip install redis orjson curl_cffi httpx html2text beautifulsoup4 lxml jieba ddgs bilibili-api-python loguru python-dotenv
 ```
 
 ### 环境变量
@@ -250,7 +250,7 @@ orjson 快速输出 JSON 到 stdout
 | 维度 | 搜索级缓存 (`search_cache`) | URL 内容级缓存 (`web_content`) |
 |------|---------------------------|-------------------------------|
 | **Key 生成** | Query 归一化（转小写/去标点/合并空白）→ MD5 前 16 位 + TopK 向上对齐（5/10/20） | URL 的 SHA256 哈希 |
-| **存储介质** | 本地字典内存 + Redis（`orjson` 序列化） | Redis（单条 `set` / 批量 `mget`） |
+| **存储介质** | `OrderedDict` 内存 LRU 缓存 + Redis（`orjson` 序列化），容量超限自动淘汰冷数据 | Redis（单条 `set` / 批量 `mget`） |
 | **过期时间** | 默认 1 小时 | 默认 24 小时 |
 
 ---
@@ -263,6 +263,7 @@ orjson 快速输出 JSON 到 stdout
 - **GitHub 引擎**：使用 GitHub 官方 REST API，存在每 IP 每小时 60 次的速率限制（403 时自动降级为空结果）。Query 中的 `github.com` / `github` 等冗余词会自动剔除。支持 SSL 容错与多词降级重试。
 - **Tavily / GitHub 凭证**：通过 `UserCredentials` 对象传入（`tool_api.py`），支持 `tavily_api_key` 与 `github_token`。
 - **日志位置**：默认输出至 `<project>/logs/app.log`，按 10MB 自动切分，保留 7 天。
+- **缓存淘汰**：内存缓存使用 `OrderedDict` 实现 LRU 策略，写入时自动淘汰最久未使用的条目以保持内存可控。
 
 ---
 

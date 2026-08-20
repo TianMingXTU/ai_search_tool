@@ -19,6 +19,7 @@ import re
 import hashlib
 import time
 from typing import List, Optional, Dict, Tuple
+from collections import OrderedDict
 import orjson
 import redis.asyncio as redis
 from web_search.config.model import SearchResult
@@ -28,7 +29,7 @@ from web_search.config.logging_config import logger
 class SearchCache:
     def __init__(self, host="localhost", port=6379, ttl=3600):
         self.ttl = ttl
-        self._memory_cache = {}
+        self._memory_cache = OrderedDict()
         self._redis_available = False
         try:
             self.redis_client = redis.Redis(
@@ -92,6 +93,7 @@ class SearchCache:
         if key in self._memory_cache:
             expire_at, data = self._memory_cache[key]
             if time.time() < expire_at:
+                self._memory_cache.move_to_end(key)
                 logger.info(f"[MemoryCache] 命中内存缓存: query='{query}'")
                 return data
             else:
@@ -114,7 +116,11 @@ class SearchCache:
             return
         key = self._gen_key(query, topk)
         self._memory_cache[key] = (time.time() + self.ttl, results)
+        self._memory_cache.move_to_end(key)
         try:
+            if len(self._memory_cache) > self.max_local_size:
+                evicted_key, _ = self._memory_cache.popitem(last=False)
+                logger.debug(f"[MemoryCache] 达到上限，淘汰冷数据: {evicted_key}")
             # dataclass 转换为 dict 结构存储
             data_to_cache = [
                 {
